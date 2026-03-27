@@ -1,0 +1,18 @@
+{
+  "heroes": [
+    { "id": "h1", "name": "Hero A", "maxHp": 22, "atk": 3, "skillDmg": 6, "ultAoe": 4 },
+    { "id": "h2", "name": "Hero 2", "maxHp": 18, "atk": 4, "skillDmg": 5, "ultAoe": 4 },
+    { "id": "h3", "name": "Hero 3", "maxHp": 20, "atk": 3, "skillDmg": 7, "ultAoe": 5 },
+    { "id": "h4", "name": "Hero 4", "maxHp": 22, "atk": 3, "skillDmg": 6, "ultAoe": 4 },
+    { "id": "h5", "name": "Hero 5", "maxHp": 18, "atk": 4, "skillDmg": 5, "ultAoe": 4 },
+    { "id": "h6", "name": "Hero 6", "maxHp": 20, "atk": 3, "skillDmg": 7, "ultAoe": 5 },
+    { "id": "h7", "name": "Hero 7", "maxHp": 22, "atk": 3, "skillDmg": 6, "ultAoe": 4 },
+    { "id": "h8", "name": "Hero 8", "maxHp": 18, "atk": 4, "skillDmg": 5, "ultAoe": 4 },
+    { "id": "h9", "name": "Hero 9", "maxHp": 20, "atk": 3, "skillDmg": 7, "ultAoe": 5 }
+  ],
+  "enemies": [
+    { "id": "e1", "name": "Enemy 1", "maxHp": 20, "atk": 2, "skillDmg": 4, "ultAoe": 3 },
+    { "id": "e2", "name": "Enemy 2", "maxHp": 20, "atk": 2, "skillDmg": 4, "ultAoe": 3 },
+    { "id": "e3", "name": "Enemy 3", "maxHp": 20, "atk": 2, "skillDmg": 4, "ultAoe": 3 }
+  ]
+}

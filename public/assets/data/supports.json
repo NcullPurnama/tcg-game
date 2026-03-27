@@ -1,0 +1,9 @@
+{
+  "cards": [
+    { "id": "heal_all", "name": "Heal All", "cost": 2, "target": "none",  "effect": { "type": "heal_all", "value": 2 } },
+    { "id": "boost",    "name": "Boost ATK", "cost": 2, "target": "ally",  "effect": { "type": "buff_atk", "value": 2, "duration": 2 } },
+    { "id": "zap",      "name": "Zap",       "cost": 2, "target": "enemy", "effect": { "type": "damage", "value": 4 } },
+    { "id": "draw2",    "name": "Draw 2",    "cost": 2, "target": "none",  "effect": { "type": "draw", "value": 2 } },
+    { "id": "charge",   "name": "Charge +2", "cost": 2, "target": "ally",  "effect": { "type": "charge_ult", "value": 2 } }
+  ]
+}
