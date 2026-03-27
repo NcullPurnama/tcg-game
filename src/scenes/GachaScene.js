@@ -28,6 +28,15 @@ export default class GachaScene extends Phaser.Scene {
     makeBtn(this, W / 2, 330, 320, 64, "PULL 10x", () => this.pull(10));
     makeBtn(this, W / 2, 440, 260, 56, "BACK", () => this.scene.start("MainMenu"));
 
+    // ===== PITY DISPLAY =====
+    this.pityText = this.add.text(W / 2, 390, "", {
+      fontSize: "15px",
+      color: "#fbbf24",
+      align: "center",
+    }).setOrigin(0.5);
+
+    this.pityBar = this.add.graphics();
+
     this.ownedText = this.add.text(24, H - 120, "", {
       fontSize: "16px",
       color: "#e5e7eb",
@@ -35,14 +44,44 @@ export default class GachaScene extends Phaser.Scene {
     });
 
     this.refreshOwned();
+    this.refreshPityUI();
+  }
+
+  // ================= PITY CONFIG =================
+  static HARD_PITY   = 90;   // guaranteed SSR
+  static SOFT_PITY   = 75;   // soft pity starts here
+  static BASE_SSR    = 0.005; // 0.5% base rate
+  static BASE_SR     = 0.10;  // 10% base rate
+
+  getPityCounter() {
+    const s = loadSave() ?? {};
+    return s.pityCounter ?? 0;
+  }
+
+  setPityCounter(val) {
+    const s = loadSave() ?? {};
+    s.pityCounter = val;
+    saveSave(s);
   }
 
   // ================= GACHA CONFIG =================
-  rollRarity() {
+  rollRarity(pityCount) {
+    // Hard pity: guaranteed SSR
+    if (pityCount >= GachaScene.HARD_PITY) return "SSR";
+
+    // Soft pity: linearly increase SSR rate from SOFT_PITY to HARD_PITY
+    let ssrRate = GachaScene.BASE_SSR;
+    if (pityCount >= GachaScene.SOFT_PITY) {
+      const progress = (pityCount - GachaScene.SOFT_PITY) /
+                       (GachaScene.HARD_PITY - GachaScene.SOFT_PITY);
+      // rate naik dari 0.5% sampai ~100% di pull ke-90
+      ssrRate = GachaScene.BASE_SSR + (1 - GachaScene.BASE_SSR) * progress;
+    }
+
     const r = Math.random();
-    if (r < 0.005) return "SSR";      // 0.5%
-    if (r < 0.105) return "SR";       // 10%
-    return "R";                       // sisa
+    if (r < ssrRate) return "SSR";
+    if (r < ssrRate + GachaScene.BASE_SR) return "SR";
+    return "R";
   }
 
   getHeroRarity(hero) {
@@ -256,12 +295,18 @@ export default class GachaScene extends Phaser.Scene {
     const s = loadSave() ?? {};
     s.ownedHeroes = s.ownedHeroes ?? [];
     s.ownedHeroesCount = s.ownedHeroesCount ?? {};
+    s.pityCounter = s.pityCounter ?? 0;
 
     const resultsForPopup = [];
     const gotCompact = [];
 
     for (let i = 0; i < n; i++) {
-      const rarity = this.rollRarity();
+      s.pityCounter++;
+      const rarity = this.rollRarity(s.pityCounter);
+
+      // reset pity counter kalau dapat SSR
+      if (rarity === "SSR") s.pityCounter = 0;
+
       const pick = this.pickFromPool(pools, rarity);
       if (!pick) continue;
 
@@ -280,6 +325,7 @@ export default class GachaScene extends Phaser.Scene {
 
     this.resultText.setText(`Terakhir Pull: ${n}x`);
     this.refreshOwned();
+    this.refreshPityUI();
 
     this.showResultPopupCards({
       title: `Hasil Pull (${n}x)`,
@@ -287,6 +333,48 @@ export default class GachaScene extends Phaser.Scene {
         ? resultsForPopup
         : [{ id: "none", name: "(tidak ada hasil)", rarity: "R", isNew: false }],
     });
+  }
+
+  refreshPityUI() {
+    const pity = this.getPityCounter();
+    const hard = GachaScene.HARD_PITY;
+    const soft = GachaScene.SOFT_PITY;
+    const remaining = hard - pity;
+    const inSoftPity = pity >= soft;
+
+    // teks info pity
+    let label = `Pity: ${pity} / ${hard} pull  (SSR guaranteed dalam ${remaining} pull)`;
+    if (inSoftPity) label += "  ⚠️ SOFT PITY AKTIF!";
+
+    this.pityText.setText(label);
+    this.pityText.setColor(inSoftPity ? "#f87171" : "#fbbf24");
+
+    // progress bar
+    const W = this.scale.width;
+    const barW = Math.min(400, W - 80);
+    const barH = 12;
+    const barX = W / 2 - barW / 2;
+    const barY = 410;
+
+    this.pityBar.clear();
+
+    // background bar
+    this.pityBar.fillStyle(0x1f2937, 1);
+    this.pityBar.fillRoundedRect(barX, barY, barW, barH, 6);
+
+    // fill bar
+    const fillRatio = Math.min(pity / hard, 1);
+    const fillW = Math.floor(barW * fillRatio);
+    const fillColor = inSoftPity ? 0xf87171 : pity > 0 ? 0xfbbf24 : 0x374151;
+    if (fillW > 0) {
+      this.pityBar.fillStyle(fillColor, 1);
+      this.pityBar.fillRoundedRect(barX, barY, fillW, barH, 6);
+    }
+
+    // soft pity marker
+    const softX = barX + Math.floor(barW * (soft / hard));
+    this.pityBar.fillStyle(0x60a5fa, 1);
+    this.pityBar.fillRect(softX - 1, barY - 3, 2, barH + 6);
   }
 
   refreshOwned() {

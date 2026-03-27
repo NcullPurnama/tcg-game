@@ -5,10 +5,16 @@ import { loadSave, saveSave } from "../core/save.js";
 export default class DeckScene extends Phaser.Scene {
   constructor() {
     super("Deck");
-    this.heroSlotsUI = [];
-    this.heroListUI = [];
+    this.heroSlotsUI   = [];
+    this.heroListUI    = [];
     this.supportListUI = [];
     this.activeHeroSlot = 0;
+
+    // scroll state
+    this.heroScrollY    = 0;
+    this.supportScrollY = 0;
+    this._heroDrag      = null;
+    this._supportDrag   = null;
   }
 
   create() {
@@ -36,49 +42,206 @@ export default class DeckScene extends Phaser.Scene {
 
     // ===== Layout Constants =====
     const marginX = 24;
-    const topY = 120;
+    const topY    = 120;
+    const colGap  = 24;
+    const colW    = Math.floor((W - marginX * 2 - colGap) / 2);
 
-    const colGap = 24;
-    const colW = Math.floor((W - marginX * 2 - colGap) / 2);
-
-    this.leftX = marginX;
+    this.leftX  = marginX;
     this.rightX = marginX + colW + colGap;
-    this.colW = colW;
+    this.colW   = colW;
+
+    // scroll area bounds
+    this.heroScrollStartY    = topY + 50;
+    this.heroScrollAreaH     = 285;
+    this.heroItemH           = 48;
+    this.heroScrollY         = 0;
+
+    this.supportTitleY       = Math.min(H - 320, topY + 340);
+    this.supportScrollStartY = this.supportTitleY + 48;
+    this.supportScrollAreaH  = Math.max(140, H - this.supportScrollStartY - 20);
+    this.supportItemH        = 48;
+    this.supportScrollY      = 0;
 
     // ===== Section 1: HERO =====
     this.add.text(this.leftX, topY, "HERO (Owned)", { fontSize: "18px", color: "#e5e7eb" }).setOrigin(0, 0);
     this.add.text(this.rightX, topY, "DECK HERO (3)", { fontSize: "18px", color: "#e5e7eb" }).setOrigin(0, 0);
-
     this.add.rectangle(W / 2, topY + 34, W - 48, 2, 0x243042, 1);
 
     this.heroHint = this.add
       .text(this.rightX, topY + 44, "Klik slot -> lalu pilih hero di kiri (tidak bisa dupe)", {
-        fontSize: "14px",
-        color: "#9ca3af",
-      })
-      .setOrigin(0, 0);
+        fontSize: "14px", color: "#9ca3af",
+      }).setOrigin(0, 0);
+
+    // clipping mask untuk hero list (kiri atas)
+    this.heroMaskShape = this.make.graphics({ add: false });
+    this._redrawHeroMask();
+    const heroMask = this.heroMaskShape.createGeometryMask();
+
+    this.heroListContainer = this.add.container(0, 0);
+    this.heroListContainer.setMask(heroMask);
+
+    // scroll bar track hero
+    this.heroTrack = this.add.rectangle(
+      this.leftX + colW - 6,
+      this.heroScrollStartY + this.heroScrollAreaH / 2,
+      6, this.heroScrollAreaH, 0x1f2937
+    ).setOrigin(0.5);
+    this.heroThumb = this.add.rectangle(
+      this.leftX + colW - 6,
+      this.heroScrollStartY,
+      6, 40, 0x4b5563
+    ).setOrigin(0.5, 0);
 
     // ===== Section 2: SUPPORT =====
-    this.supportTitleY = Math.min(H - 320, topY + 340);
-
     this.add.text(this.leftX, this.supportTitleY, "SUPPORT (Owned)", { fontSize: "18px", color: "#e5e7eb" }).setOrigin(0, 0);
     this.add.text(this.rightX, this.supportTitleY, "DECK SUPPORT (10)", { fontSize: "18px", color: "#e5e7eb" }).setOrigin(0, 0);
-
     this.add.rectangle(W / 2, this.supportTitleY + 34, W - 48, 2, 0x243042, 1);
 
-    // deck support text (kanan bawah)
+    // deck support text (kanan)
     this.deckText = this.add.text(this.rightX, this.supportTitleY + 48, "", {
-      fontSize: "16px",
-      color: "#9ca3af",
-      wordWrap: { width: this.colW },
-      lineSpacing: 6,
+      fontSize: "16px", color: "#9ca3af",
+      wordWrap: { width: this.colW }, lineSpacing: 6,
     });
+
+    // clipping mask untuk support list
+    this.supportMaskShape = this.make.graphics({ add: false });
+    this._redrawSupportMask();
+    const supportMask = this.supportMaskShape.createGeometryMask();
+
+    this.supportListContainer = this.add.container(0, 0);
+    this.supportListContainer.setMask(supportMask);
+
+    // scroll bar track support
+    this.supportTrack = this.add.rectangle(
+      this.leftX + colW - 6,
+      this.supportScrollStartY + this.supportScrollAreaH / 2,
+      6, this.supportScrollAreaH, 0x1f2937
+    ).setOrigin(0.5);
+    this.supportThumb = this.add.rectangle(
+      this.leftX + colW - 6,
+      this.supportScrollStartY,
+      6, 40, 0x4b5563
+    ).setOrigin(0.5, 0);
+
+    // ===== Scroll input =====
+    this._setupScrollInput();
 
     // render all
     this.renderHeroDeckSlots();
     this.renderOwnedHeroList();
     this.renderOwnedSupportList();
     this.refreshSupportDeckText();
+  }
+
+  _redrawHeroMask() {
+    this.heroMaskShape.clear();
+    this.heroMaskShape.fillStyle(0xffffff);
+    this.heroMaskShape.fillRect(
+      this.leftX, this.heroScrollStartY,
+      this.colW, this.heroScrollAreaH
+    );
+  }
+
+  _redrawSupportMask() {
+    this.supportMaskShape.clear();
+    this.supportMaskShape.fillStyle(0xffffff);
+    this.supportMaskShape.fillRect(
+      this.leftX, this.supportScrollStartY,
+      this.colW, this.supportScrollAreaH
+    );
+  }
+
+  _setupScrollInput() {
+    // mouse wheel
+    this.input.on("wheel", (pointer, _objs, _dx, dy) => {
+      const px = pointer.x, py = pointer.y;
+      if (this._inHeroZone(px, py))    this._scrollHero(dy * 0.6);
+      if (this._inSupportZone(px, py)) this._scrollSupport(dy * 0.6);
+    });
+
+    // drag (touch / mouse)
+    this.input.on("pointerdown", (p) => {
+      if (this._inHeroZone(p.x, p.y))
+        this._heroDrag = { startY: p.y, startScroll: this.heroScrollY };
+      if (this._inSupportZone(p.x, p.y))
+        this._supportDrag = { startY: p.y, startScroll: this.supportScrollY };
+    });
+
+    this.input.on("pointermove", (p) => {
+      if (this._heroDrag && p.isDown) {
+        const delta = this._heroDrag.startY - p.y;
+        this._setHeroScroll(this._heroDrag.startScroll + delta);
+      }
+      if (this._supportDrag && p.isDown) {
+        const delta = this._supportDrag.startY - p.y;
+        this._setSupportScroll(this._supportDrag.startScroll + delta);
+      }
+    });
+
+    this.input.on("pointerup", () => {
+      this._heroDrag    = null;
+      this._supportDrag = null;
+    });
+  }
+
+  _inHeroZone(x, y) {
+    return x >= this.leftX && x <= this.leftX + this.colW &&
+           y >= this.heroScrollStartY && y <= this.heroScrollStartY + this.heroScrollAreaH;
+  }
+
+  _inSupportZone(x, y) {
+    return x >= this.leftX && x <= this.leftX + this.colW &&
+           y >= this.supportScrollStartY && y <= this.supportScrollStartY + this.supportScrollAreaH;
+  }
+
+  _maxHeroScroll() {
+    const ownedCount = ((this.state.ownedHeroes ?? []).length || this.heroes.length);
+    const totalH = ownedCount * this.heroItemH;
+    return Math.max(0, totalH - this.heroScrollAreaH);
+  }
+
+  _maxSupportScroll() {
+    const count = (this.state.ownedSupports ?? this.supports.map(c => c.id)).length;
+    const totalH = count * this.supportItemH;
+    return Math.max(0, totalH - this.supportScrollAreaH);
+  }
+
+  _scrollHero(delta) { this._setHeroScroll(this.heroScrollY + delta); }
+
+  _setHeroScroll(val) {
+    this.heroScrollY = Math.max(0, Math.min(val, this._maxHeroScroll()));
+    this.heroListContainer.setY(-this.heroScrollY);
+    this._updateHeroThumb();
+  }
+
+  _scrollSupport(delta) { this._setSupportScroll(this.supportScrollY + delta); }
+
+  _setSupportScroll(val) {
+    this.supportScrollY = Math.max(0, Math.min(val, this._maxSupportScroll()));
+    this.supportListContainer.setY(-this.supportScrollY);
+    this._updateSupportThumb();
+  }
+
+  _updateHeroThumb() {
+    const max = this._maxHeroScroll();
+    if (max <= 0) { this.heroThumb.setVisible(false); return; }
+    this.heroThumb.setVisible(true);
+    const ratio  = this.heroScrollAreaH / (this.heroScrollAreaH + max);
+    const thumbH = Math.max(24, this.heroScrollAreaH * ratio);
+    const travel = this.heroScrollAreaH - thumbH;
+    const thumbY = this.heroScrollStartY + (this.heroScrollY / max) * travel;
+    this.heroThumb.setSize(6, thumbH).setPosition(this.leftX + this.colW - 6, thumbY);
+  }
+
+  _updateSupportThumb() {
+    const max = this._maxSupportScroll();
+    if (max <= 0) { this.supportThumb.setVisible(false); return; }
+    this.supportThumb.setVisible(true);
+    const ratio  = this.supportScrollAreaH / (this.supportScrollAreaH + max);
+    const thumbH = Math.max(24, this.supportScrollAreaH * ratio);
+    const travel = this.supportScrollAreaH - thumbH;
+    const thumbY = this.supportScrollStartY + (this.supportScrollY / max) * travel;
+    this.supportThumb.setSize(6, thumbH).setPosition(this.leftX + this.colW - 6, thumbY);
   }
 
   // ================= HERO DECK =================
@@ -177,78 +340,61 @@ export default class DeckScene extends Phaser.Scene {
   renderOwnedHeroList() {
     this.heroListUI.forEach((o) => o.destroy());
     this.heroListUI = [];
+    this.heroListContainer.removeAll(false);
 
     const heroes = this.heroes ?? [];
     if (!heroes.length) return;
 
     const heroById = new Map(heroes.map((h) => [h.id, h]));
 
-    // owned fallback: kalau belum gacha, tetap bisa pilih semua hero
-    const ownedIdsRaw = (this.state.ownedHeroes ?? []).length ? this.state.ownedHeroes : heroes.map((h) => h.id);
+    const ownedIdsRaw = (this.state.ownedHeroes ?? []).length
+      ? this.state.ownedHeroes
+      : heroes.map((h) => h.id);
     const ownedIds = ownedIdsRaw.filter((id) => heroById.has(id));
 
-    const startY = 170;
-    const itemH = 48;
-    const maxVisible = 6; // supaya tidak tabrakan section support
-    const list = ownedIds.slice(0, maxVisible);
+    const baseY     = this.heroScrollStartY;  // absolute Y tanpa scroll
+    const itemH     = this.heroItemH;
+    const currentDeck   = this.state.heroDeck ?? [];
+    const activeSlotId  = currentDeck[this.activeHeroSlot];
 
-    const currentDeck = this.state.heroDeck ?? [];
-    const activeSlotId = currentDeck[this.activeHeroSlot];
-
-    for (let i = 0; i < list.length; i++) {
-      const id = list[i];
+    for (let i = 0; i < ownedIds.length; i++) {
+      const id   = ownedIds[i];
       const hero = heroById.get(id);
       const name = hero ? hero.name : id;
 
-      const x = this.leftX + this.colW / 2;
-      const y = startY + i * itemH;
+      const x  = this.leftX + this.colW / 2;
+      const y  = baseY + i * itemH + itemH / 2;   // posisi absolut (container scroll menggeser)
 
-      const inOtherSlot = currentDeck.includes(id) && id !== activeSlotId; // hero sudah dipakai slot lain
+      const inOtherSlot  = currentDeck.includes(id) && id !== activeSlotId;
       const isActiveHero = id === activeSlotId;
+      const bgColor      = inOtherSlot ? 0x0b1220 : isActiveHero ? 0x1f2937 : 0x0f172a;
 
-      const bgColor = inOtherSlot ? 0x0b1220 : isActiveHero ? 0x1f2937 : 0x0f172a;
-
-      const bg = this.add.rectangle(x, y, this.colW, 42, bgColor, 0.95);
-      bg.setStrokeStyle(1, 0x374151, 1);
+      const bg  = this.add.rectangle(x, y, this.colW - 14, 42, bgColor, 0.95);
+      bg.setStrokeStyle(1, isActiveHero ? 0x60a5fa : 0x374151, 1);
 
       const txt = this.add
-        .text(this.leftX + 12, y, name, {
-          fontSize: "16px",
-          color: inOtherSlot ? "#6b7280" : "#e5e7eb",
-        })
+        .text(this.leftX + 12, y, name, { fontSize: "16px", color: inOtherSlot ? "#6b7280" : "#e5e7eb" })
         .setOrigin(0, 0.5);
 
-      let tagText = "SELECT";
-      let tagColor = "#34d399";
-      if (isActiveHero) {
-        tagText = "ACTIVE";
-        tagColor = "#60a5fa";
-      } else if (inOtherSlot) {
-        tagText = "LOCKED";
-        tagColor = "#9ca3af";
-      }
+      let tagText = "SELECT", tagColor = "#34d399";
+      if (isActiveHero)   { tagText = "ACTIVE"; tagColor = "#60a5fa"; }
+      else if (inOtherSlot) { tagText = "LOCKED"; tagColor = "#9ca3af"; }
 
       const tag = this.add
-        .text(this.leftX + this.colW - 12, y, tagText, { fontSize: "14px", color: tagColor })
+        .text(this.leftX + this.colW - 22, y, tagText, { fontSize: "14px", color: tagColor })
         .setOrigin(1, 0.5);
 
       if (!inOtherSlot) {
         bg.setInteractive({ useHandCursor: true }).on("pointerdown", () => {
-          // assign hero ke slot aktif
           this.state = loadSave() ?? this.state;
           this.state.heroDeck = this.state.heroDeck ?? [];
-
           const old = this.state.heroDeck[this.activeHeroSlot];
           this.state.heroDeck[this.activeHeroSlot] = id;
-
-          // safety: tidak boleh dupe
           const set = new Set(this.state.heroDeck);
           if (set.size !== this.state.heroDeck.length) {
-            // revert kalau jadi dupe
             this.state.heroDeck[this.activeHeroSlot] = old;
             return;
           }
-
           saveSave(this.state);
           this.renderHeroDeckSlots();
           this.renderOwnedHeroList();
@@ -257,61 +403,48 @@ export default class DeckScene extends Phaser.Scene {
 
       const c = this.add.container(0, 0, [bg, txt, tag]);
       this.heroListUI.push(c);
+      this.heroListContainer.add(c);
     }
 
-    if (ownedIds.length > maxVisible) {
-      const more = this.add.text(
-        this.leftX,
-        startY + maxVisible * itemH + 6,
-        `+${ownedIds.length - maxVisible} hero lainnya (nanti bisa kita buat scroll)`,
-        { fontSize: "13px", color: "#9ca3af" }
-      );
-      this.heroListUI.push(more);
-    }
+    // reset scroll ke atas setiap re-render (opsional: hapus baris ini kalau ingin posisi terjaga)
+    this._setHeroScroll(this.heroScrollY);
+    this._updateHeroThumb();
   }
 
   // ================= SUPPORT DECK =================
   renderOwnedSupportList() {
     this.supportListUI.forEach((o) => o.destroy());
     this.supportListUI = [];
+    this.supportListContainer.removeAll(false);
 
-    const ownedIds = this.state.ownedSupports ?? [];
+    const ownedIds   = this.state.ownedSupports ?? [];
     const ownedCards = this.supports.filter((c) => ownedIds.includes(c.id));
 
-    const startY = this.supportTitleY + 48;
-    const itemH = 48;
-    const maxVisible = 7;
+    const baseY  = this.supportScrollStartY;
+    const itemH  = this.supportItemH;
 
-    const list = ownedCards.slice(0, maxVisible);
-
-    for (let i = 0; i < list.length; i++) {
-      const c = list[i];
+    for (let i = 0; i < ownedCards.length; i++) {
+      const c      = ownedCards[i];
       const inDeck = (this.state.deck ?? []).includes(c.id);
 
       const x = this.leftX + this.colW / 2;
-      const y = startY + i * itemH;
+      const y = baseY + i * itemH + itemH / 2;
 
-      const bg = this.add.rectangle(x, y, this.colW, 42, inDeck ? 0x1f2937 : 0x0f172a, 0.95);
-      bg.setStrokeStyle(1, 0x374151, 1);
+      const bg  = this.add.rectangle(x, y, this.colW - 14, 42, inDeck ? 0x1f2937 : 0x0f172a, 0.95);
+      bg.setStrokeStyle(1, inDeck ? 0x60a5fa : 0x374151, 1);
 
       const label = `${inDeck ? "✅" : "➕"} ${c.name} (Cost ${c.cost})`;
-      const txt = this.add.text(this.leftX + 12, y, label, { fontSize: "16px", color: "#e5e7eb" }).setOrigin(0, 0.5);
+      const txt   = this.add.text(this.leftX + 12, y, label, { fontSize: "16px", color: "#e5e7eb" }).setOrigin(0, 0.5);
 
       bg.setInteractive({ useHandCursor: true }).on("pointerdown", () => this.toggleSupportDeck(c.id));
 
       const row = this.add.container(0, 0, [bg, txt]);
       this.supportListUI.push(row);
+      this.supportListContainer.add(row);
     }
 
-    if (ownedCards.length > maxVisible) {
-      const more = this.add.text(
-        this.leftX,
-        startY + maxVisible * itemH + 6,
-        `+${ownedCards.length - maxVisible} support lainnya (nanti bisa kita buat scroll)`,
-        { fontSize: "13px", color: "#9ca3af" }
-      );
-      this.supportListUI.push(more);
-    }
+    this._setSupportScroll(this.supportScrollY);
+    this._updateSupportThumb();
   }
 
   toggleSupportDeck(cardId) {
@@ -326,7 +459,9 @@ export default class DeckScene extends Phaser.Scene {
     }
 
     saveSave(this.state);
+    const prevScroll = this.supportScrollY;
     this.renderOwnedSupportList();
+    this._setSupportScroll(prevScroll);
     this.refreshSupportDeckText();
   }
 

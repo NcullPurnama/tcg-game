@@ -39,11 +39,26 @@ export default class BattleScene extends Phaser.Scene {
     const characterData = this.registry.get("characters") ?? this.cache.json.get("characters");
     const supportData   = this.registry.get("supports") ?? this.cache.json.get("supports");
 
-    this.heroesData = (characterData && characterData.heroes) ? characterData.heroes : [];
+    const allHeroes  = (characterData && characterData.heroes) ? characterData.heroes : [];
     this.enemiesData = (characterData && characterData.enemies) ? characterData.enemies : [];
     this.supportPool = (supportData && supportData.cards) ? supportData.cards : [];
 
-    // fallback minimal
+    // ---- Pakai heroDeck dari save ----
+    const save      = loadSave() ?? {};
+    const heroDeck  = save.heroDeck ?? [];
+    const heroById  = new Map(allHeroes.map(h => [h.id, h]));
+
+    // ambil hero sesuai urutan slot deck, filter yang valid
+    const pickedHeroes = heroDeck
+      .map(id => heroById.get(id))
+      .filter(Boolean);
+
+    // fallback: kalau deck kosong / belum diset, pakai 3 hero pertama
+    this.heroesData = pickedHeroes.length >= 3
+      ? pickedHeroes.slice(0, 3)
+      : allHeroes.slice(0, 3);
+
+    // fallback minimal kalau JSON kosong
     if (this.heroesData.length < 3) this.heroesData = [
       { id:"h1", name:"Hero 1", maxHp:20, atk:3, skillDmg:6, ultAoe:4 },
       { id:"h2", name:"Hero 2", maxHp:20, atk:3, skillDmg:6, ultAoe:4 },
